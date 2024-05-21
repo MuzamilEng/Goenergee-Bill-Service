@@ -1,0 +1,70 @@
+name: Build, push, and deploy
+
+on:
+
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+        - main
+
+jobs:
+  build:
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v2
+      with:
+          fetch-depth: 0  # Shallow clones should be disabled for a better relevancy of analysis
+#    - uses: sonarsource/sonarqube-scan-action@master
+#      env:
+#          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+#          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+
+    - name: Install doctl
+      uses: digitalocean/action-doctl@v2
+      with:
+        token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+
+    - name: Build container image
+      run: docker build -t registry.digitalocean.com/goenergey/goenergee-bill-service:latest .
+
+    - name: Log in to DigitalOcean Container Registry with short-lived credentials
+      run: doctl registry login --expiry-seconds 1200
+
+    - name: Push image to DigitalOcean Container Registry
+      run: docker push  registry.digitalocean.com/goenergey/goenergee-bill-service:latest
+
+    - name: Remove old images from Container Registry
+      uses: ripplr-io/docr-image-remove@v1
+      with:
+        image_repository:  registry.digitalocean.com/goenergey/goenergee-bill-service
+        buffer_size: 2
+
+    - name: Deploy to VPS
+      uses: appleboy/ssh-action@v0.1.6
+      with:
+            # VPS IP
+            host: ${{ secrets.HOST }}
+
+            # VPS username
+            username: ${{ secrets.VPS_SSH_USERNAME }}
+
+            # SSH key (copy it from your local machine)
+            key: ${{ secrets.VPS_SSH_SECRET }}
+            # SSH port
+            port: 22
+            # passphrase
+            script: |
+              cd /var/www/html/prod/Goenergee-Bill-Service/ 
+              git fetch origin
+              git reset --hard origin/main
+              export DOCKER_CLIENT_TIMEOUT=360
+              export COMPOSE_HTTP_TIMEOUT=360
+              docker compose down
+              echo "Deleting old image(s)..."
+              docker image prune -a -f
+              docker compose --file docker-compose-latest.yml pull
+              docker compose -f docker-compose-latest.yml up -d

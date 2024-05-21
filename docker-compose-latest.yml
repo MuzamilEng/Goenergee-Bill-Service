@@ -1,0 +1,21 @@
+version: "3.7"
+services:
+  app:
+    image: registry.digitalocean.com/goenergey/goenergee-bill-service:latest
+
+
+    ports:
+      - 8000:8000
+
+    networks:
+      - goenergee-service-app
+
+
+
+volumes:
+  es-data:
+    driver: local
+networks:
+  goenergee-service-app:
+    external: true
+    driver: bridge
